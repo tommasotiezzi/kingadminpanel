@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kings League Fantasy - Admin Panel</title>
+    <link rel="stylesheet" href="admin-styles.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="screen active">
+        <div class="login-container">
+            <h1>🏆 Kings League Fantasy</h1>
+            <h2>Admin Panel</h2>
+            <form id="loginForm">
+                <input type="email" id="loginEmail" placeholder="Admin Email" required>
+                <input type="password" id="loginPassword" placeholder="Password" required>
+                <button type="submit">Login</button>
+                <p id="loginError" class="error"></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Admin Panel -->
+    <div id="mainPanel" class="screen">
+        <!-- Header -->
+        <header>
+            <div class="header-content">
+                <h1>🏆 Kings League Fantasy - Vote Manager</h1>
+                <div class="header-actions">
+                    <button id="calculateResultsBtn" class="btn-success">🎯 Calculate Results</button>
+                    <button id="configBtn" class="btn-secondary">⚙️ Scoring Config</button>
+                    <button id="logoutBtn" class="btn-secondary">Logout</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Match Selection -->
+        <section class="match-selection">
+            <div class="selection-row">
+                <div class="input-group">
+                    <label>Matchday</label>
+                    <select id="matchdaySelect">
+                        <option value="">Select Matchday...</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Team A</label>
+                    <select id="teamASelect">
+                        <option value="">Select Team A...</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Team B</label>
+                    <select id="teamBSelect">
+                        <option value="">Select Team B...</option>
+                    </select>
+                </div>
+                <button id="loadMatchBtn" class="btn-primary">Load Match</button>
+            </div>
+            <div id="matchInfo" class="match-info hidden">
+                <span id="matchInfoText"></span>
+                <button id="startGameBtn" class="btn-success">Start Game (Initialize Votes)</button>
+            </div>
+        </section>
+
+        <!-- Split Screen: Team A vs Team B -->
+        <section id="voteSection" class="vote-section hidden">
+            <div class="teams-container">
+                <!-- Team A -->
+                <div class="team-panel">
+                    <h2 id="teamAName" class="team-header">Team A</h2>
+                    
+                    <!-- President Section -->
+                    <div id="teamAPresident" class="president-section">
+                        <h3>President</h3>
+                        <div id="teamAPresidentVote"></div>
+                    </div>
+
+                    <!-- Players Section -->
+                    <div id="teamAPlayers" class="players-section">
+                        <h3>Players</h3>
+                        <div id="teamAPlayersList"></div>
+                    </div>
+                </div>
+
+                <!-- Team B -->
+                <div class="team-panel">
+                    <h2 id="teamBName" class="team-header">Team B</h2>
+                    
+                    <!-- President Section -->
+                    <div id="teamBPresident" class="president-section">
+                        <h3>President</h3>
+                        <div id="teamBPresidentVote"></div>
+                    </div>
+
+                    <!-- Players Section -->
+                    <div id="teamBPlayers" class="players-section">
+                        <h3>Players</h3>
+                        <div id="teamBPlayersList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="save-section">
+                <button id="saveAllBtn" class="btn-save">💾 Save All Votes</button>
+                <p id="saveStatus" class="save-status"></p>
+            </div>
+        </section>
+    </div>
+
+    <!-- Config Modal -->
+    <div id="configModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>⚙️ Scoring Configuration</h2>
+            <div id="configForm"></div>
+            <button id="saveConfigBtn" class="btn-primary">Save Config</button>
+        </div>
+    </div>
+
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="admin-script.js"></script>
+</body>
+</html>
