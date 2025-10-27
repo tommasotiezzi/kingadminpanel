@@ -29,7 +29,6 @@ async function checkAuth() {
         
         if (isAdmin) {
             showScreen('mainPanel');
-            // Wait for next frame after DOM renders
             requestAnimationFrame(() => {
                 requestAnimationFrame(async () => {
                     await initializeApp();
@@ -90,18 +89,23 @@ async function initializeApp() {
     await loadMatchdays();
     await loadTeams();
     
-    // Add event listeners that are in mainPanel
     document.getElementById('calculateResultsBtn').addEventListener('click', calculateAllResults);
     document.getElementById('loadMatchBtn').addEventListener('click', loadMatch);
     document.getElementById('startGameBtn').addEventListener('click', startGame);
     document.getElementById('saveAllBtn').addEventListener('click', saveAllVotes);
     document.getElementById('configBtn').addEventListener('click', openConfigModal);
+    document.getElementById('addPlayerBtn').addEventListener('click', openAddPlayerModal);
     document.getElementById('logoutBtn').addEventListener('click', logout);
     
     const closeBtn = document.querySelector('.close');
     if (closeBtn) closeBtn.addEventListener('click', closeConfigModal);
     
+    const closePlayerBtn = document.querySelector('.close-player');
+    if (closePlayerBtn) closePlayerBtn.addEventListener('click', closeAddPlayerModal);
+    
     document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
+    document.getElementById('addPlayerForm').addEventListener('submit', addPlayer);
+    document.getElementById('cancelAddPlayer').addEventListener('click', closeAddPlayerModal);
 }
 
 async function loadScoringConfig() {
@@ -174,9 +178,11 @@ async function loadMatch() {
     currentMatchday = matchdayId;
     const matchdayNumber = document.querySelector('#matchdaySelect option:checked').dataset.number;
     
+    // Load teams first
     teamA = await loadTeamData(teamAId);
     teamB = await loadTeamData(teamBId);
     
+    // NOW check if votes exist for THESE specific players
     const votesExist = await checkExistingVotes(matchdayId);
     gameStarted = votesExist;
     
@@ -201,186 +207,189 @@ async function loadTeamData(teamId) {
 }
 
 async function checkExistingVotes(matchdayId) {
-    const { data } = await sb.from('player_votes').select('id').eq('kl_matchday_id', matchdayId).limit(1);
+    // Check if votes exist for ANY player in the current match teams
+    const allPlayers = [...teamA.players, ...teamB.players];
+    const playerIds = allPlayers.map(p => p.id);
+    
+    const { data } = await sb
+        .from('player_votes')
+        .select('id')
+        .eq('kl_matchday_id', matchdayId)
+        .in('player_id', playerIds)
+        .limit(1);
+    
     return data && data.length > 0;
 }
 
 // ============================================
-// RENDER FORMS
+// RENDER FORMS - NEW TABLE LAYOUT
 // ============================================
 function renderVoteForms() {
-    document.getElementById('teamAName').textContent = teamA.name;
-    renderPresidentForm('teamAPresidentVote', teamA.president, 'A');
-    renderPlayersForm('teamAPlayersList', teamA.players, 'A', teamA.is_eliminated);
+    document.getElementById('teamAName').textContent = teamA.name.toUpperCase();
+    document.getElementById('teamBName').textContent = teamB.name.toUpperCase();
     
-    document.getElementById('teamBName').textContent = teamB.name;
-    renderPresidentForm('teamBPresidentVote', teamB.president, 'B');
-    renderPlayersForm('teamBPlayersList', teamB.players, 'B', teamB.is_eliminated);
+    // Render presidents
+    renderPresidentTable('teamAPresident', teamA.president, 'A');
+    renderPresidentTable('teamBPresident', teamB.president, 'B');
+    
+    // Render players
+    renderPlayersTable('teamAPlayers', teamA.players);
+    renderPlayersTable('teamBPlayers', teamB.players);
 }
 
-function renderPresidentForm(containerId, president, team) {
-    if (!president) return;
+function renderPresidentTable(containerId, president, team) {
     const container = document.getElementById(containerId);
+    if (!president) {
+        container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No president assigned</p>';
+        return;
+    }
+    
     container.innerHTML = `
-        <div class="vote-card president-card" data-president-id="${president.id}" data-team="${team}">
-            <div class="player-info">
-                <span class="player-name">👑 ${president.name}</span>
-            </div>
-            <div class="president-vote-form">
-                <div class="president-penalty">
-                    <div class="checkbox-field">
-                        <input type="radio" id="pres_${team}_scored" name="pres_${team}" value="scored">
-                        <label for="pres_${team}_scored">✅ Scored (+${scoringConfig.president_penalty_scored})</label>
-                    </div>
-                    <div class="checkbox-field">
-                        <input type="radio" id="pres_${team}_missed" name="pres_${team}" value="missed">
-                        <label for="pres_${team}_missed">❌ Missed (${scoringConfig.president_penalty_missed})</label>
-                    </div>
-                    <div class="checkbox-field">
-                        <input type="radio" id="pres_${team}_none" name="pres_${team}" value="none" checked>
-                        <label for="pres_${team}_none">⚪ None (0)</label>
-                    </div>
-                </div>
+        <div class="president-row" data-president-id="${president.id}" data-team="${team}">
+            <div class="president-name">⭐ ${president.name}</div>
+            <div class="penalty-options">
+                <label class="radio-option scored">
+                    <input type="radio" id="pres_${team}_scored" name="pres_${team}" value="scored">
+                    <label for="pres_${team}_scored">✅ Segnato</label>
+                </label>
+                <label class="radio-option missed">
+                    <input type="radio" id="pres_${team}_missed" name="pres_${team}" value="missed">
+                    <label for="pres_${team}_missed">❌ Sbagliato</label>
+                </label>
+                <label class="radio-option">
+                    <input type="radio" id="pres_${team}_none" name="pres_${team}" value="none" checked>
+                    <label for="pres_${team}_none">⚪ None</label>
+                </label>
             </div>
         </div>
     `;
 }
 
-function renderPlayersForm(containerId, players, team, isEliminated) {
+function renderPlayersTable(containerId, players) {
     const container = document.getElementById(containerId);
-    container.innerHTML = '';
-    const roleLabels = { 'P': 'Portiere', 'D': 'Difensore', 'C': 'Centrocampista', 'A': 'Attaccante' };
+    if (!players || players.length === 0) {
+        container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No players</p>';
+        return;
+    }
     
-    players.forEach(player => {
-        const card = document.createElement('div');
-        card.className = 'vote-card';
-        card.dataset.playerId = player.id;
-        card.dataset.team = team;
+    // Update the section label with player count
+    const labelId = containerId === 'teamAPlayers' ? 'teamAPlayersLabel' : 'teamBPlayersLabel';
+    const sectionLabel = document.getElementById(labelId);
+    if (sectionLabel) {
+        sectionLabel.textContent = `Giocatori (${players.length})`;
+    }
+    
+    // Sort players by role: P -> D -> C -> A
+    const roleOrder = { 'P': 1, 'D': 2, 'C': 3, 'A': 4 };
+    const sortedPlayers = [...players].sort((a, b) => {
+        const orderA = roleOrder[a.role] || 99;
+        const orderB = roleOrder[b.role] || 99;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name);
+    });
+    
+    let html = `
+        <div class="table-header">
+            <div class="table-header-cell">R</div>
+            <div class="table-header-cell">NOME</div>
+            <div class="table-header-cell" title="Voto Base">⚡</div>
+            <div class="table-header-cell" title="Gol Normali">⚽</div>
+            <div class="table-header-cell" title="Gol Doppio">💥</div>
+            <div class="table-header-cell" title="Assist">🎯</div>
+            <div class="table-header-cell" title="Rigori Segnati">🥅</div>
+            <div class="table-header-cell" title="Rigori Sbagliati">❌</div>
+            <div class="table-header-cell" title="Cartellini Gialli">🟨</div>
+            <div class="table-header-cell" title="Cartellini Rossi">🟥</div>
+            <div class="table-header-cell" title="Shootout Segnati">🎪</div>
+            <div class="table-header-cell" title="Shootout Sbagliati">⛔</div>
+            <div class="table-header-cell" title="Autogol">🔄</div>
+            <div class="table-header-cell" title="Clean Sheet (solo P)">🧤</div>
+        </div>
+    `;
+    
+    sortedPlayers.forEach(player => {
+        // Format name as N. Surname
+        const nameParts = player.name.trim().split(' ');
+        let formattedName = player.name;
+        if (nameParts.length >= 2) {
+            const firstName = nameParts[0];
+            const surname = nameParts.slice(1).join(' ');
+            formattedName = `${firstName.charAt(0)}. ${surname}`;
+        }
         
-        const defaultVote = (isEliminated && !gameStarted) ? '5.0' : '6.0';
+        // Role badge color
+        const roleColors = {
+            'P': 'background: #3498db; color: white;',
+            'D': 'background: #27ae60; color: white;',
+            'C': 'background: #f39c12; color: white;',
+            'A': 'background: #e74c3c; color: white;'
+        };
+        const roleStyle = roleColors[player.role] || 'background: #95a5a6; color: white;';
+        const isGoalkeeper = player.role === 'P';
         
-        card.innerHTML = `
-            <div class="player-info">
-                <span class="player-name">${player.name}</span>
-                <span class="player-role">${roleLabels[player.role]}</span>
-            </div>
-            <div class="vote-form">
-                <div class="form-field base-vote">
-                    <label>Base Vote</label>
-                    <input type="number" class="base-vote-input" min="1" max="10" step="0.5" value="${defaultVote}" ${isEliminated ? 'readonly' : ''}>
+        html += `
+            <div class="player-row" data-player-id="${player.id}">
+                <div class="role-badge" style="${roleStyle}">${player.role}</div>
+                <div class="player-name-cell" title="${player.name}">${formattedName}</div>
+                <div>
+                    <input type="number" class="player-input base-vote-input" step="0.1" min="1" max="10" value="6.0" placeholder="6.0">
                 </div>
-                <div class="form-field">
-                    <label>Goals</label>
-                    <input type="number" class="goals" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input goals" min="0" value="0">
                 </div>
-                <div class="form-field">
-                    <label>Goals Double</label>
-                    <input type="number" class="goals-double" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input goals-double" min="0" value="0">
                 </div>
-                <div class="form-field">
-                    <label>Penalties ✅</label>
-                    <input type="number" class="penalties-scored" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input assists" min="0" value="0">
                 </div>
-                <div class="form-field">
-                    <label>Penalties ❌</label>
-                    <input type="number" class="penalties-missed" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input penalties-scored" min="0" value="0">
                 </div>
-                <div class="form-field">
-                    <label>Assists</label>
-                    <input type="number" class="assists" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input penalties-missed" min="0" value="0">
                 </div>
-                <div class="form-field">
-                    <label>Yellow Cards</label>
-                    <input type="number" class="yellow-cards" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input yellow-cards" min="0" value="0">
                 </div>
-                <div class="form-field">
-                    <label>Red Cards</label>
-                    <input type="number" class="red-cards" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input red-cards" min="0" value="0">
                 </div>
-                ${player.role === 'P' ? `
-                <div class="form-field">
-                    <label>Clean Sheet</label>
-                    <input type="checkbox" class="clean-sheet" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input shootout-scored" min="0" value="0">
                 </div>
-                ` : ''}
-                <div class="form-field">
-                    <label>Shootout ✅</label>
-                    <input type="number" class="shootout-scored" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input shootout-missed" min="0" value="0">
                 </div>
-                <div class="form-field">
-                    <label>Shootout ❌</label>
-                    <input type="number" class="shootout-missed" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div>
+                    <input type="number" class="player-input own-goals" min="0" value="0">
                 </div>
-                <div class="form-field">
-                    <label>Own Goals</label>
-                    <input type="number" class="own-goals" min="0" value="0" ${isEliminated ? 'disabled' : ''}>
+                <div class="checkbox-cell">
+                    ${isGoalkeeper ? '<input type="checkbox" class="clean-sheet-checkbox">' : ''}
                 </div>
-                <div class="form-field">
-                    <label>Minutes</label>
-                    <input type="number" class="minutes" min="0" max="90" value="0" ${isEliminated ? 'disabled' : ''}>
-                </div>
+                <input type="hidden" class="minutes" value="0">
             </div>
         `;
-        container.appendChild(card);
     });
-}
-
-async function loadExistingVotes() {
-    const { data: playerVotes } = await sb.from('player_votes').select('*').eq('kl_matchday_id', currentMatchday);
-    const { data: presidentVotes } = await sb.from('president_votes').select('*').eq('kl_matchday_id', currentMatchday);
     
-    renderVoteForms();
-    
-    if (playerVotes) {
-        playerVotes.forEach(vote => {
-            const card = document.querySelector(`[data-player-id="${vote.player_id}"]`);
-            if (card) {
-                card.querySelector('.base-vote-input').value = vote.base_vote;
-                card.querySelector('.goals').value = vote.goals;
-                card.querySelector('.goals-double').value = vote.goals_double;
-                card.querySelector('.penalties-scored').value = vote.penalties_scored;
-                card.querySelector('.penalties-missed').value = vote.penalties_missed;
-                card.querySelector('.assists').value = vote.assists;
-                card.querySelector('.yellow-cards').value = vote.yellow_cards;
-                card.querySelector('.red-cards').value = vote.red_cards;
-                if (card.querySelector('.clean-sheet')) card.querySelector('.clean-sheet').checked = vote.clean_sheet;
-                card.querySelector('.shootout-scored').value = vote.shootout_scored;
-                card.querySelector('.shootout-missed').value = vote.shootout_missed;
-                card.querySelector('.own-goals').value = vote.own_goals;
-                card.querySelector('.minutes').value = vote.minutes_played;
-            }
-        });
-    }
-    
-    if (presidentVotes) {
-        presidentVotes.forEach(vote => {
-            const card = document.querySelector(`[data-president-id="${vote.president_id}"]`);
-            if (card) {
-                const team = card.dataset.team;
-                if (vote.penalty_scored) document.getElementById(`pres_${team}_scored`).checked = true;
-                else if (vote.penalty_missed) document.getElementById(`pres_${team}_missed`).checked = true;
-                else document.getElementById(`pres_${team}_none`).checked = true;
-            }
-        });
-    }
+    container.innerHTML = html;
 }
 
 // ============================================
-// START GAME
+// START GAME (Initialize DB)
 // ============================================
 async function startGame() {
-    if (!confirm('Initialize all votes with base values?')) return;
+    if (!confirm('Initialize votes for all players in this match?')) return;
     
     try {
-        const allPlayers = [...teamA.players, ...teamB.players];
-        const allPresidents = [teamA.president, teamB.president].filter(p => p);
+        showStatus('⏳ Initializing...', 'success');
         
-        const playerVotesData = allPlayers.map(player => {
-            const isEliminated = (player.team_id === teamA.id && teamA.is_eliminated) || (player.team_id === teamB.id && teamB.is_eliminated);
-            return {
+        const allPlayers = [...teamA.players, ...teamB.players];
+        for (const player of allPlayers) {
+            await sb.from('player_votes').insert({
                 kl_matchday_id: currentMatchday,
                 player_id: player.id,
-                base_vote: isEliminated ? 5.0 : 6.0,
+                base_vote: 6.0,
                 goals: 0,
                 goals_double: 0,
                 penalties_scored: 0,
@@ -393,30 +402,114 @@ async function startGame() {
                 shootout_missed: 0,
                 own_goals: 0,
                 minutes_played: 0,
-                final_score: isEliminated ? 5.0 : 6.0
-            };
-        });
+                final_score: 6.0
+            });
+        }
         
-        const { error: playerError } = await sb.from('player_votes').insert(playerVotesData);
-        if (playerError) throw playerError;
+        if (teamA.president) {
+            await sb.from('president_votes').insert({
+                kl_matchday_id: currentMatchday,
+                president_id: teamA.president.id,
+                penalty_scored: false,
+                penalty_missed: false,
+                final_score: 0
+            });
+        }
         
-        const presidentVotesData = allPresidents.map(p => ({
-            kl_matchday_id: currentMatchday,
-            president_id: p.id,
-            penalty_scored: false,
-            penalty_missed: false,
-            final_score: 0
-        }));
-        
-        const { error: presidentError } = await sb.from('president_votes').insert(presidentVotesData);
-        if (presidentError) throw presidentError;
+        if (teamB.president) {
+            await sb.from('president_votes').insert({
+                kl_matchday_id: currentMatchday,
+                president_id: teamB.president.id,
+                penalty_scored: false,
+                penalty_missed: false,
+                final_score: 0
+            });
+        }
         
         gameStarted = true;
         document.getElementById('startGameBtn').style.display = 'none';
-        showStatus('Game started!', 'success');
+        showStatus('✅ Game initialized!', 'success');
     } catch (error) {
         console.error(error);
-        showStatus('Error: ' + error.message, 'error');
+        showStatus('❌ Error: ' + error.message, 'error');
+    }
+}
+
+// ============================================
+// LOAD EXISTING VOTES
+// ============================================
+async function loadExistingVotes() {
+    renderVoteForms();
+    
+    const allPlayers = [...teamA.players, ...teamB.players];
+    
+    for (const player of allPlayers) {
+        const { data } = await sb
+            .from('player_votes')
+            .select('*')
+            .eq('kl_matchday_id', currentMatchday)
+            .eq('player_id', player.id)
+            .single();
+        
+        if (data) {
+            const card = document.querySelector(`[data-player-id="${player.id}"]`);
+            if (card) {
+                card.querySelector('.base-vote-input').value = data.base_vote || 6.0;
+                card.querySelector('.goals').value = data.goals || 0;
+                card.querySelector('.goals-double').value = data.goals_double || 0;
+                card.querySelector('.penalties-scored').value = data.penalties_scored || 0;
+                card.querySelector('.penalties-missed').value = data.penalties_missed || 0;
+                card.querySelector('.assists').value = data.assists || 0;
+                card.querySelector('.yellow-cards').value = data.yellow_cards || 0;
+                card.querySelector('.red-cards').value = data.red_cards || 0;
+                const cleanSheetCheckbox = card.querySelector('.clean-sheet-checkbox');
+                if (cleanSheetCheckbox) {
+                    cleanSheetCheckbox.checked = data.clean_sheet || false;
+                }
+                card.querySelector('.shootout-scored').value = data.shootout_scored || 0;
+                card.querySelector('.shootout-missed').value = data.shootout_missed || 0;
+                card.querySelector('.own-goals').value = data.own_goals || 0;
+                card.querySelector('.minutes').value = data.minutes_played || 0;
+            }
+        }
+    }
+    
+    if (teamA.president) {
+        const { data } = await sb
+            .from('president_votes')
+            .select('*')
+            .eq('kl_matchday_id', currentMatchday)
+            .eq('president_id', teamA.president.id)
+            .single();
+        
+        if (data) {
+            if (data.penalty_scored) {
+                document.getElementById('pres_A_scored').checked = true;
+            } else if (data.penalty_missed) {
+                document.getElementById('pres_A_missed').checked = true;
+            } else {
+                document.getElementById('pres_A_none').checked = true;
+            }
+        }
+    }
+    
+    if (teamB.president) {
+        const { data } = await sb
+            .from('president_votes')
+            .select('*')
+            .eq('kl_matchday_id', currentMatchday)
+            .eq('president_id', teamB.president.id)
+            .single();
+        
+        if (data) {
+            if (data.penalty_scored) {
+                document.getElementById('pres_B_scored').checked = true;
+            } else if (data.penalty_missed) {
+                document.getElementById('pres_B_missed').checked = true;
+            } else {
+                document.getElementById('pres_B_none').checked = true;
+            }
+        }
     }
 }
 
@@ -425,13 +518,15 @@ async function startGame() {
 // ============================================
 async function saveAllVotes() {
     if (!gameStarted) {
-        alert('Click "Start Game" first');
+        alert('Please initialize the game first!');
         return;
     }
     
     if (!confirm('Save all votes?')) return;
     
     try {
+        showStatus('⏳ Saving...', 'success');
+        
         const playerCards = document.querySelectorAll('[data-player-id]');
         
         for (const card of playerCards) {
@@ -444,7 +539,8 @@ async function saveAllVotes() {
             const assists = parseInt(card.querySelector('.assists').value) || 0;
             const yellowCards = parseInt(card.querySelector('.yellow-cards').value) || 0;
             const redCards = parseInt(card.querySelector('.red-cards').value) || 0;
-            const cleanSheet = card.querySelector('.clean-sheet')?.checked || false;
+            const cleanSheetCheckbox = card.querySelector('.clean-sheet-checkbox');
+            const cleanSheet = cleanSheetCheckbox ? cleanSheetCheckbox.checked : false;
             const shootoutScored = parseInt(card.querySelector('.shootout-scored').value) || 0;
             const shootoutMissed = parseInt(card.querySelector('.shootout-missed').value) || 0;
             const ownGoals = parseInt(card.querySelector('.own-goals').value) || 0;
@@ -600,6 +696,83 @@ async function saveConfig() {
     }
 }
 
+// ============================================
+// ADD PLAYER MODAL
+// ============================================
+async function openAddPlayerModal() {
+    const modal = document.getElementById('addPlayerModal');
+    
+    // Load teams into select
+    const { data: teams } = await sb.from('kings_league_teams').select('*').order('name');
+    const teamSelect = document.getElementById('playerTeam');
+    teamSelect.innerHTML = '<option value="">Select Team...</option>';
+    if (teams) {
+        teams.forEach(team => {
+            const opt = document.createElement('option');
+            opt.value = team.id;
+            opt.textContent = team.name;
+            teamSelect.appendChild(opt);
+        });
+    }
+    
+    // Reset form
+    document.getElementById('addPlayerForm').reset();
+    
+    modal.classList.add('active');
+}
+
+function closeAddPlayerModal() {
+    document.getElementById('addPlayerModal').classList.remove('active');
+}
+
+async function addPlayer(e) {
+    e.preventDefault();
+    
+    const name = document.getElementById('playerName').value.trim();
+    const teamId = document.getElementById('playerTeam').value;
+    const role = document.getElementById('playerRole').value;
+    const rating = document.getElementById('playerRating').value;
+    const avatar = document.getElementById('playerAvatar').value.trim();
+    const wildcard = document.getElementById('playerWildcard').checked;
+    
+    if (!name || !teamId || !role) {
+        alert('Please fill all required fields!');
+        return;
+    }
+    
+    try {
+        const playerData = {
+            name,
+            team_id: teamId,
+            role,
+            wildcard,
+            overall_rating: rating ? parseInt(rating) : null,
+            avatar_url: avatar || null
+        };
+        
+        const { data, error } = await sb.from('players').insert(playerData).select();
+        
+        if (error) throw error;
+        
+        alert(`✅ Player "${name}" added successfully!`);
+        closeAddPlayerModal();
+        
+        // Reload teams if match is loaded
+        if (teamA || teamB) {
+            const matchdayId = document.getElementById('matchdaySelect').value;
+            const teamAId = document.getElementById('teamASelect').value;
+            const teamBId = document.getElementById('teamBSelect').value;
+            
+            if (matchdayId && teamAId && teamBId) {
+                await loadMatch();
+            }
+        }
+    } catch (error) {
+        console.error(error);
+        alert('❌ Error: ' + error.message);
+    }
+}
+
 function showStatus(message, type) {
     const status = document.getElementById('saveStatus');
     status.textContent = message;
@@ -625,7 +798,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await login(email, password);
             showScreen('mainPanel');
-            // Wait for next frame after DOM renders
             requestAnimationFrame(() => {
                 requestAnimationFrame(async () => {
                     await initializeApp();
@@ -637,7 +809,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     window.addEventListener('click', (e) => {
-        const modal = document.getElementById('configModal');
-        if (e.target === modal) closeConfigModal();
+        const configModal = document.getElementById('configModal');
+        const playerModal = document.getElementById('addPlayerModal');
+        
+        if (e.target === configModal) closeConfigModal();
+        if (e.target === playerModal) closeAddPlayerModal();
     });
 });
