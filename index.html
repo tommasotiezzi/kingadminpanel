@@ -28,6 +28,7 @@
             <div class="header-content">
                 <h1>🏆 Kings League Fantasy - Vote Manager</h1>
                 <div class="header-actions">
+                    <button id="addPlayerBtn" class="btn-primary">➕ Add Player</button>
                     <button id="calculateResultsBtn" class="btn-success">🎯 Calculate Results</button>
                     <button id="configBtn" class="btn-secondary">⚙️ Scoring Config</button>
                     <button id="logoutBtn" class="btn-secondary">Logout</button>
@@ -64,41 +65,33 @@
             </div>
         </section>
 
-        <!-- Split Screen: Team A vs Team B -->
+        <!-- Split Screen: Team A vs Team B (NEW TABLE LAYOUT) -->
         <section id="voteSection" class="vote-section hidden">
-            <div class="teams-container">
+            <div class="teams-container-new">
                 <!-- Team A -->
-                <div class="team-panel">
-                    <h2 id="teamAName" class="team-header">Team A</h2>
+                <div class="team-panel-new">
+                    <h2 id="teamAName" class="team-header-new">TEAM 1</h2>
                     
-                    <!-- President Section -->
-                    <div id="teamAPresident" class="president-section">
-                        <h3>President</h3>
-                        <div id="teamAPresidentVote"></div>
-                    </div>
+                    <!-- President -->
+                    <div class="section-label">Presidente</div>
+                    <div id="teamAPresident" class="president-table"></div>
 
-                    <!-- Players Section -->
-                    <div id="teamAPlayers" class="players-section">
-                        <h3>Players</h3>
-                        <div id="teamAPlayersList"></div>
-                    </div>
+                    <!-- Players -->
+                    <div class="section-label" id="teamAPlayersLabel">Giocatori</div>
+                    <div id="teamAPlayers" class="players-table"></div>
                 </div>
 
                 <!-- Team B -->
-                <div class="team-panel">
-                    <h2 id="teamBName" class="team-header">Team B</h2>
+                <div class="team-panel-new">
+                    <h2 id="teamBName" class="team-header-new">TEAM 2</h2>
                     
-                    <!-- President Section -->
-                    <div id="teamBPresident" class="president-section">
-                        <h3>President</h3>
-                        <div id="teamBPresidentVote"></div>
-                    </div>
+                    <!-- President -->
+                    <div class="section-label">Presidente</div>
+                    <div id="teamBPresident" class="president-table"></div>
 
-                    <!-- Players Section -->
-                    <div id="teamBPlayers" class="players-section">
-                        <h3>Players</h3>
-                        <div id="teamBPlayersList"></div>
-                    </div>
+                    <!-- Players -->
+                    <div class="section-label" id="teamBPlayersLabel">Giocatori</div>
+                    <div id="teamBPlayers" class="players-table"></div>
                 </div>
             </div>
 
@@ -117,6 +110,62 @@
             <h2>⚙️ Scoring Configuration</h2>
             <div id="configForm"></div>
             <button id="saveConfigBtn" class="btn-primary">Save Config</button>
+        </div>
+    </div>
+
+    <!-- Add Player Modal -->
+    <div id="addPlayerModal" class="modal">
+        <div class="modal-content">
+            <span class="close-player">&times;</span>
+            <h2>➕ Add New Player</h2>
+            <form id="addPlayerForm">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="playerName">Nome Completo *</label>
+                        <input type="text" id="playerName" required placeholder="Es: Marco Rossi">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="playerTeam">Team *</label>
+                        <select id="playerTeam" required>
+                            <option value="">Select Team...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="playerRole">Ruolo *</label>
+                        <select id="playerRole" required>
+                            <option value="">Select Role...</option>
+                            <option value="P">Portiere (P)</option>
+                            <option value="D">Difensore (D)</option>
+                            <option value="C">Centrocampista (C)</option>
+                            <option value="A">Attaccante (A)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="playerRating">Overall Rating</label>
+                        <input type="number" id="playerRating" min="1" max="100" placeholder="Es: 75">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="playerAvatar">Avatar URL</label>
+                        <input type="url" id="playerAvatar" placeholder="https://...">
+                    </div>
+                    
+                    <div class="form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="playerWildcard">
+                            <span>Wildcard Player</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">✅ Add Player</button>
+                    <button type="button" id="cancelAddPlayer" class="btn-secondary">Cancel</button>
+                </div>
+            </form>
         </div>
     </div>
 
