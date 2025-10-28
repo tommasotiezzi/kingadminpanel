@@ -223,7 +223,7 @@ header {
 }
 
 /* ===================================== */
-/* NEW TABLE LAYOUT */
+/* TABLE LAYOUT */
 /* ===================================== */
 
 .vote-section {
@@ -354,15 +354,15 @@ header {
     background: #ffebee;
 }
 
-/* Players Table - UPDATED */
+/* Players Table */
 .players-table {
     width: 100%;
 }
 
 .table-header {
     display: grid;
-    grid-template-columns: 38px 1fr 45px 35px 35px 35px 35px 35px 35px 35px 35px 35px 35px 35px 32px;
-    gap: 4px;
+    grid-template-columns: 30px 32px 1fr 38px 30px 30px 30px 30px 30px 30px 30px 30px 30px 30px 30px 30px 30px;
+    gap: 3px;
     padding: 10px 12px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     border-radius: 8px 8px 0 0;
@@ -380,7 +380,8 @@ header {
 }
 
 .table-header-cell:first-child,
-.table-header-cell:nth-child(2) {
+.table-header-cell:nth-child(2),
+.table-header-cell:nth-child(3) {
     text-align: left;
 }
 
@@ -404,8 +405,8 @@ header {
 
 .player-row {
     display: grid;
-    grid-template-columns: 38px 1fr 45px 35px 35px 35px 35px 35px 35px 35px 35px 35px 35px 35px 32px;
-    gap: 4px;
+    grid-template-columns: 30px 32px 1fr 38px 30px 30px 30px 30px 30px 30px 30px 30px 30px 30px 30px 30px 30px;
+    gap: 3px;
     padding: 10px 12px;
     align-items: center;
     border-bottom: 1px solid #e8e8e8;
@@ -428,6 +429,26 @@ header {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    position: relative;
+    cursor: default;
+}
+
+/* Tooltip per nomi lunghi */
+.player-name-cell:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: rgba(0, 0, 0, 0.95);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.95em;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    margin-bottom: 5px;
 }
 
 .role-badge {
@@ -445,6 +466,14 @@ header {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.gioca-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    margin: 0;
+    accent-color: #667eea;
 }
 
 .clean-sheet-checkbox {
