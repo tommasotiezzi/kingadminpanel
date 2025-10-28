@@ -178,11 +178,9 @@ async function loadMatch() {
     currentMatchday = matchdayId;
     const matchdayNumber = document.querySelector('#matchdaySelect option:checked').dataset.number;
     
-    // Load teams first
     teamA = await loadTeamData(teamAId);
     teamB = await loadTeamData(teamBId);
     
-    // NOW check if votes exist for THESE specific players
     const votesExist = await checkExistingVotes(matchdayId);
     gameStarted = votesExist;
     
@@ -207,7 +205,6 @@ async function loadTeamData(teamId) {
 }
 
 async function checkExistingVotes(matchdayId) {
-    // Check if votes exist for ANY player in the current match teams
     const allPlayers = [...teamA.players, ...teamB.players];
     const playerIds = allPlayers.map(p => p.id);
     
@@ -222,17 +219,15 @@ async function checkExistingVotes(matchdayId) {
 }
 
 // ============================================
-// RENDER FORMS - NEW TABLE LAYOUT
+// RENDER FORMS
 // ============================================
 function renderVoteForms() {
     document.getElementById('teamAName').textContent = teamA.name.toUpperCase();
     document.getElementById('teamBName').textContent = teamB.name.toUpperCase();
     
-    // Render presidents
     renderPresidentTable('teamAPresident', teamA.president, 'A');
     renderPresidentTable('teamBPresident', teamB.president, 'B');
     
-    // Render players
     renderPlayersTable('teamAPlayers', teamA.players);
     renderPlayersTable('teamBPlayers', teamB.players);
 }
@@ -272,14 +267,12 @@ function renderPlayersTable(containerId, players) {
         return;
     }
     
-    // Update the section label with player count
     const labelId = containerId === 'teamAPlayers' ? 'teamAPlayersLabel' : 'teamBPlayersLabel';
     const sectionLabel = document.getElementById(labelId);
     if (sectionLabel) {
         sectionLabel.textContent = `Giocatori (${players.length})`;
     }
     
-    // Sort players by role: P -> D -> C -> A
     const roleOrder = { 'P': 1, 'D': 2, 'C': 3, 'A': 4 };
     const sortedPlayers = [...players].sort((a, b) => {
         const orderA = roleOrder[a.role] || 99;
@@ -290,6 +283,7 @@ function renderPlayersTable(containerId, players) {
     
     let html = `
         <div class="table-header">
+            <div class="table-header-cell" title="Gioca">✓</div>
             <div class="table-header-cell">R</div>
             <div class="table-header-cell">NOME</div>
             <div class="table-header-cell" title="Voto Base">⚡</div>
@@ -304,11 +298,12 @@ function renderPlayersTable(containerId, players) {
             <div class="table-header-cell" title="Shootout Sbagliati">⛔</div>
             <div class="table-header-cell" title="Autogol">🔄</div>
             <div class="table-header-cell" title="Clean Sheet (solo P)">🧤</div>
+            <div class="table-header-cell" title="Gol Subiti (solo P)">🥅❌</div>
+            <div class="table-header-cell" title="Shootout Subiti (solo P)">🎪❌</div>
         </div>
     `;
     
     sortedPlayers.forEach(player => {
-        // Format name as N. Surname
         const nameParts = player.name.trim().split(' ');
         let formattedName = player.name;
         if (nameParts.length >= 2) {
@@ -317,11 +312,10 @@ function renderPlayersTable(containerId, players) {
             formattedName = `${firstName.charAt(0)}. ${surname}`;
         }
         
-        // Role badge color
         const roleColors = {
-            'P': 'background: #3498db; color: white;',
-            'D': 'background: #27ae60; color: white;',
-            'C': 'background: #f39c12; color: white;',
+            'P': 'background: #f39c12; color: white;',
+            'D': 'background: #3498db; color: white;',
+            'C': 'background: #27ae60; color: white;',
             'A': 'background: #e74c3c; color: white;'
         };
         const roleStyle = roleColors[player.role] || 'background: #95a5a6; color: white;';
@@ -329,10 +323,13 @@ function renderPlayersTable(containerId, players) {
         
         html += `
             <div class="player-row" data-player-id="${player.id}">
+                <div class="checkbox-cell">
+                    <input type="checkbox" class="gioca-checkbox" data-player-id="${player.id}">
+                </div>
                 <div class="role-badge" style="${roleStyle}">${player.role}</div>
                 <div class="player-name-cell" title="${player.name}">${formattedName}</div>
                 <div>
-                    <input type="number" class="player-input base-vote-input" step="0.1" min="1" max="10" value="6.0" placeholder="6.0">
+                    <input type="number" class="player-input base-vote-input" step="0.1" min="0" max="10" value="0" placeholder="0">
                 </div>
                 <div>
                     <input type="number" class="player-input goals" min="0" value="0">
@@ -367,12 +364,32 @@ function renderPlayersTable(containerId, players) {
                 <div class="checkbox-cell">
                     ${isGoalkeeper ? '<input type="checkbox" class="clean-sheet-checkbox">' : ''}
                 </div>
+                <div>
+                    ${isGoalkeeper ? '<input type="number" class="player-input goals-conceded" min="0" value="0">' : ''}
+                </div>
+                <div>
+                    ${isGoalkeeper ? '<input type="number" class="player-input shootout-conceded" min="0" value="0">' : ''}
+                </div>
                 <input type="hidden" class="minutes" value="0">
             </div>
         `;
     });
     
     container.innerHTML = html;
+    
+    // Add event listeners to "Gioca" checkboxes
+    container.querySelectorAll('.gioca-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const row = this.closest('.player-row');
+            const voteInput = row.querySelector('.base-vote-input');
+            
+            if (this.checked) {
+                voteInput.value = '6.0';
+            } else {
+                voteInput.value = '0';
+            }
+        });
+    });
 }
 
 // ============================================
@@ -389,7 +406,7 @@ async function startGame() {
             await sb.from('player_votes').insert({
                 kl_matchday_id: currentMatchday,
                 player_id: player.id,
-                base_vote: 6.0,
+                base_vote: 0,
                 goals: 0,
                 goals_double: 0,
                 penalties_scored: 0,
@@ -401,8 +418,10 @@ async function startGame() {
                 shootout_scored: 0,
                 shootout_missed: 0,
                 own_goals: 0,
+                goals_conceded: 0,
+                shootout_conceded: 0,
                 minutes_played: 0,
-                final_score: 6.0
+                final_score: 0
             });
         }
         
@@ -454,7 +473,15 @@ async function loadExistingVotes() {
         if (data) {
             const card = document.querySelector(`[data-player-id="${player.id}"]`);
             if (card) {
-                card.querySelector('.base-vote-input').value = data.base_vote || 6.0;
+                const baseVote = data.base_vote || 0;
+                card.querySelector('.base-vote-input').value = baseVote;
+                
+                // Set checkbox based on vote
+                const checkbox = card.querySelector('.gioca-checkbox');
+                if (checkbox) {
+                    checkbox.checked = baseVote > 0;
+                }
+                
                 card.querySelector('.goals').value = data.goals || 0;
                 card.querySelector('.goals-double').value = data.goals_double || 0;
                 card.querySelector('.penalties-scored').value = data.penalties_scored || 0;
@@ -469,6 +496,16 @@ async function loadExistingVotes() {
                 card.querySelector('.shootout-scored').value = data.shootout_scored || 0;
                 card.querySelector('.shootout-missed').value = data.shootout_missed || 0;
                 card.querySelector('.own-goals').value = data.own_goals || 0;
+                
+                const goalsConcededInput = card.querySelector('.goals-conceded');
+                if (goalsConcededInput) {
+                    goalsConcededInput.value = data.goals_conceded || 0;
+                }
+                const shootoutConcededInput = card.querySelector('.shootout-conceded');
+                if (shootoutConcededInput) {
+                    shootoutConcededInput.value = data.shootout_conceded || 0;
+                }
+                
                 card.querySelector('.minutes').value = data.minutes_played || 0;
             }
         }
@@ -544,9 +581,20 @@ async function saveAllVotes() {
             const shootoutScored = parseInt(card.querySelector('.shootout-scored').value) || 0;
             const shootoutMissed = parseInt(card.querySelector('.shootout-missed').value) || 0;
             const ownGoals = parseInt(card.querySelector('.own-goals').value) || 0;
+            
+            const goalsConcededInput = card.querySelector('.goals-conceded');
+            const goalsConceded = goalsConcededInput ? parseInt(goalsConcededInput.value) || 0 : 0;
+            
+            const shootoutConcededInput = card.querySelector('.shootout-conceded');
+            const shootoutConceded = shootoutConcededInput ? parseInt(shootoutConcededInput.value) || 0 : 0;
+            
             const minutesPlayed = parseInt(card.querySelector('.minutes').value) || 0;
             
-            const finalScore = calculatePlayerScore(baseVote, goals, goalsDouble, penaltiesScored, penaltiesMissed, assists, yellowCards, redCards, cleanSheet, shootoutScored, shootoutMissed, ownGoals);
+            const finalScore = calculatePlayerScore(
+                baseVote, goals, goalsDouble, penaltiesScored, penaltiesMissed, 
+                assists, yellowCards, redCards, cleanSheet, shootoutScored, 
+                shootoutMissed, ownGoals, goalsConceded, shootoutConceded
+            );
             
             const { error } = await sb.from('player_votes').update({
                 base_vote: baseVote,
@@ -561,6 +609,8 @@ async function saveAllVotes() {
                 shootout_scored: shootoutScored,
                 shootout_missed: shootoutMissed,
                 own_goals: ownGoals,
+                goals_conceded: goalsConceded,
+                shootout_conceded: shootoutConceded,
                 minutes_played: minutesPlayed,
                 final_score: finalScore,
                 updated_at: new Date().toISOString()
@@ -597,19 +647,25 @@ async function saveAllVotes() {
     }
 }
 
-function calculatePlayerScore(baseVote, goals, goalsDouble, penaltiesScored, penaltiesMissed, assists, yellowCards, redCards, cleanSheet, shootoutScored, shootoutMissed, ownGoals) {
+function calculatePlayerScore(
+    baseVote, goals, goalsDouble, penaltiesScored, penaltiesMissed, 
+    assists, yellowCards, redCards, cleanSheet, shootoutScored, 
+    shootoutMissed, ownGoals, goalsConceded, shootoutConceded
+) {
     let score = baseVote;
-    score += goals * scoringConfig.goal_normal;
-    score += goalsDouble * scoringConfig.goal_double;
-    score += penaltiesScored * scoringConfig.penalty_scored;
-    score += penaltiesMissed * scoringConfig.penalty_missed;
-    score += assists * scoringConfig.assist;
-    score += yellowCards * scoringConfig.yellow_card;
-    score += redCards * scoringConfig.red_card;
-    score += cleanSheet ? scoringConfig.clean_sheet : 0;
-    score += shootoutScored * scoringConfig.shootout_scored;
-    score += shootoutMissed * scoringConfig.shootout_missed;
-    score += ownGoals * scoringConfig.own_goal;
+    score += goals * (scoringConfig.goal_normal || 0);
+    score += goalsDouble * (scoringConfig.goal_double || 0);
+    score += penaltiesScored * (scoringConfig.penalty_scored || 0);
+    score += penaltiesMissed * (scoringConfig.penalty_missed || 0);
+    score += assists * (scoringConfig.assist || 0);
+    score += yellowCards * (scoringConfig.yellow_card || 0);
+    score += redCards * (scoringConfig.red_card || 0);
+    score += cleanSheet ? (scoringConfig.clean_sheet || 0) : 0;
+    score += shootoutScored * (scoringConfig.shootout_scored || 0);
+    score += shootoutMissed * (scoringConfig.shootout_missed || 0);
+    score += ownGoals * (scoringConfig.own_goal || 0);
+    score += goalsConceded * (scoringConfig.goal_conceded || 0);
+    score += shootoutConceded * (scoringConfig.shootout_conceded || 0);
     return Math.round(score * 10) / 10;
 }
 
@@ -631,7 +687,7 @@ async function calculateAllResults() {
     try {
         showStatus(`⏳ Calculating Matchday ${matchdayNumber}...`, 'success');
         
-        const { data, error } = await sb.rpc('calculate_matchday_results', {
+        const { data, error } = await sb.rpc('process_matchday_results', {
             p_kl_matchday_id: matchdayId
         });
         
@@ -702,7 +758,6 @@ async function saveConfig() {
 async function openAddPlayerModal() {
     const modal = document.getElementById('addPlayerModal');
     
-    // Load teams into select
     const { data: teams } = await sb.from('kings_league_teams').select('*').order('name');
     const teamSelect = document.getElementById('playerTeam');
     teamSelect.innerHTML = '<option value="">Select Team...</option>';
@@ -715,9 +770,7 @@ async function openAddPlayerModal() {
         });
     }
     
-    // Reset form
     document.getElementById('addPlayerForm').reset();
-    
     modal.classList.add('active');
 }
 
@@ -733,7 +786,7 @@ async function addPlayer(e) {
     const role = document.getElementById('playerRole').value;
     const rating = document.getElementById('playerRating').value;
     const avatar = document.getElementById('playerAvatar').value.trim();
-    const wildcard = document.getElementById('playerWildcard').checked;
+    const isWildcard = document.getElementById('playerWildcard').checked;
     
     if (!name || !teamId || !role) {
         alert('Please fill all required fields!');
@@ -745,7 +798,7 @@ async function addPlayer(e) {
             name,
             team_id: teamId,
             role,
-            wildcard,
+            is_wildcard: isWildcard,
             overall_rating: rating ? parseInt(rating) : null,
             avatar_url: avatar || null
         };
@@ -757,7 +810,6 @@ async function addPlayer(e) {
         alert(`✅ Player "${name}" added successfully!`);
         closeAddPlayerModal();
         
-        // Reload teams if match is loaded
         if (teamA || teamB) {
             const matchdayId = document.getElementById('matchdaySelect').value;
             const teamAId = document.getElementById('teamASelect').value;
