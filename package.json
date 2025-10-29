@@ -1,0 +1,16 @@
+{
+  "name": "kings-league-fantasy-admin",
+  "version": "1.0.0",
+  "description": "Kings League Fantasy Admin Panel",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

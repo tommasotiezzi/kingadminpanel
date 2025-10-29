@@ -4,15 +4,142 @@
 const SUPABASE_URL = 'https://ctikdctvbjsdbtfyzxgj.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0aWtkY3R2YmpzZGJ0Znl6eGdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNDYxNTcsImV4cCI6MjA3NjcyMjE1N30.hlGGeCGsuAxnuimvFoKC0Qj3YirmPmiF3DASxrF1lu0';
 
-// ⚠️ SERVICE ROLE KEY - NEVER COMMIT TO PUBLIC REPO
-// For production: Use environment variable or Vercel env
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 // Client for authentication (uses anon key)
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Admin client for CRUD operations (bypasses RLS)
-const adminClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+// ============================================
+// ADMIN CLIENT PROXY
+// ============================================
+// Instead of using service role key in browser, we proxy through API route
+const adminClient = {
+  from: (table) => ({
+    select: (columns = '*') => ({
+      eq: function(key, value) {
+        this.filters = { ...this.filters, [key]: value };
+        return this;
+      },
+      order: function(column, options = {}) {
+        this.orderBy = { column, ascending: options.ascending !== false };
+        return this;
+      },
+      single: function() {
+        this.isSingle = true;
+        return this.execute();
+      },
+      maybeSingle: function() {
+        this.isSingle = true;
+        return this.execute();
+      },
+      then: function(resolve, reject) {
+        return this.execute().then(resolve, reject);
+      },
+      filters: {},
+      orderBy: null,
+      isSingle: false,
+      execute: async function() {
+        const response = await fetch('/api/admin-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'select',
+            params: {
+              table,
+              columns,
+              filters: this.filters,
+              single: this.isSingle,
+              order: this.orderBy
+            }
+          })
+        });
+        return await response.json();
+      }
+    }),
+    insert: (data) => ({
+      select: function() {
+        this.shouldSelect = true;
+        return this;
+      },
+      then: function(resolve, reject) {
+        return this.execute().then(resolve, reject);
+      },
+      shouldSelect: false,
+      execute: async function() {
+        const response = await fetch('/api/admin-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'insert',
+            params: {
+              table,
+              data,
+              select: this.shouldSelect
+            }
+          })
+        });
+        return await response.json();
+      }
+    }),
+    update: (data) => ({
+      eq: function(key, value) {
+        this.filters = { ...this.filters, [key]: value };
+        return this;
+      },
+      then: function(resolve, reject) {
+        return this.execute().then(resolve, reject);
+      },
+      filters: {},
+      execute: async function() {
+        const response = await fetch('/api/admin-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'update',
+            params: {
+              table,
+              data,
+              filters: this.filters
+            }
+          })
+        });
+        return await response.json();
+      }
+    }),
+    upsert: (data, options = {}) => ({
+      then: function(resolve, reject) {
+        return this.execute().then(resolve, reject);
+      },
+      execute: async function() {
+        const response = await fetch('/api/admin-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'upsert',
+            params: {
+              table,
+              data,
+              onConflict: options.onConflict
+            }
+          })
+        });
+        return await response.json();
+      }
+    })
+  }),
+  rpc: async (functionName, args = {}) => {
+    const response = await fetch('/api/admin-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'rpc',
+        params: {
+          functionName,
+          args
+        }
+      })
+    });
+    return await response.json();
+  }
+};
 
 // ============================================
 // STATE
@@ -132,7 +259,6 @@ async function initializeApp() {
 }
 
 async function loadScoringConfig() {
-    // Use adminClient to bypass RLS
     const { data } = await adminClient.from('scoring_config').select('*');
     if (data) {
         scoringConfig = {};
@@ -143,7 +269,6 @@ async function loadScoringConfig() {
 }
 
 async function loadMatchdays() {
-    // Use adminClient to bypass RLS
     const { data } = await adminClient.from('kl_matchdays').select('*').order('matchday_number');
     if (data) {
         const select = document.getElementById('matchdaySelect');
@@ -159,7 +284,6 @@ async function loadMatchdays() {
 }
 
 async function loadTeams() {
-    // Use adminClient to bypass RLS
     const { data } = await adminClient.from('kings_league_teams').select('*').order('name');
     if (data) {
         const selectA = document.getElementById('teamASelect');
@@ -210,7 +334,6 @@ async function loadMatch() {
     document.getElementById('matchInfoText').textContent = `Matchday ${matchdayNumber}: ${teamA.name} vs ${teamB.name}`;
     document.getElementById('matchInfo').classList.remove('hidden');
     
-    // Render forms first, then try to load existing votes
     renderVoteForms();
     await loadExistingVotes();
     
@@ -218,9 +341,8 @@ async function loadMatch() {
 }
 
 async function loadTeamData(teamId) {
-    // Use adminClient to bypass RLS
     const { data: team } = await adminClient.from('kings_league_teams').select('*').eq('id', teamId).single();
-    const { data: players } = await adminClient.from('players').select('*').eq('team_id', teamId).order('role').order('name');
+    const { data: players } = await adminClient.from('players').select('*').eq('team_id', teamId).order('role');
     const { data: president } = await adminClient.from('presidents').select('*').eq('team_id', teamId).single();
     return { ...team, players, president };
 }
@@ -384,7 +506,6 @@ function renderPlayersTable(containerId, players) {
     
     container.innerHTML = html;
     
-    // Add event listeners to "Gioca" checkboxes
     container.querySelectorAll('.gioca-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', function() {
             const row = this.closest('.player-row');
@@ -405,7 +526,6 @@ function renderPlayersTable(containerId, players) {
 async function loadExistingVotes() {
     const allPlayers = [...teamA.players, ...teamB.players];
     
-    // Use adminClient to bypass RLS
     for (const player of allPlayers) {
         const { data } = await adminClient
             .from('player_votes')
@@ -494,7 +614,7 @@ async function loadExistingVotes() {
 }
 
 // ============================================
-// SAVE VOTES (WITH UPSERT) - Uses adminClient
+// SAVE VOTES (WITH UPSERT)
 // ============================================
 async function saveAllVotes() {
     if (!confirm('Save all votes?')) return;
@@ -504,7 +624,6 @@ async function saveAllVotes() {
         
         const playerCards = document.querySelectorAll('[data-player-id]');
         
-        // Use adminClient to bypass RLS
         for (const card of playerCards) {
             const playerId = card.dataset.playerId;
             const baseVote = parseFloat(card.querySelector('.base-vote-input').value);
@@ -617,7 +736,7 @@ function calculatePlayerScore(
 }
 
 // ============================================
-// CALCULATE RESULTS (RPC) - Uses adminClient
+// CALCULATE RESULTS (RPC)
 // ============================================
 async function calculateAllResults() {
     const matchdayId = document.getElementById('matchdaySelect').value;
@@ -634,7 +753,6 @@ async function calculateAllResults() {
     try {
         showStatus(`⏳ Calculating Matchday ${matchdayNumber}...`, 'success');
         
-        // Use adminClient to bypass RLS
         const { data, error } = await adminClient.rpc('process_matchday_results', {
             p_kl_matchday_id: matchdayId
         });
@@ -656,7 +774,7 @@ async function calculateAllResults() {
 }
 
 // ============================================
-// CONFIG MODAL - Uses adminClient
+// CONFIG MODAL
 // ============================================
 function openConfigModal() {
     const modal = document.getElementById('configModal');
@@ -686,7 +804,6 @@ async function saveConfig() {
     try {
         const inputs = document.querySelectorAll('#configForm input');
         
-        // Use adminClient to bypass RLS
         for (const input of inputs) {
             const key = input.dataset.configKey;
             const value = parseFloat(input.value);
@@ -703,12 +820,11 @@ async function saveConfig() {
 }
 
 // ============================================
-// ADD PLAYER MODAL - Uses adminClient
+// ADD PLAYER MODAL
 // ============================================
 async function openAddPlayerModal() {
     const modal = document.getElementById('addPlayerModal');
     
-    // Use adminClient to bypass RLS
     const { data: teams } = await adminClient.from('kings_league_teams').select('*').order('name');
     const teamSelect = document.getElementById('playerTeam');
     teamSelect.innerHTML = '<option value="">Select Team...</option>';
@@ -754,7 +870,6 @@ async function addPlayer(e) {
             avatar_url: avatar || null
         };
         
-        // Use adminClient to bypass RLS
         const { data, error } = await adminClient.from('players').insert(playerData).select();
         
         if (error) throw error;
@@ -762,7 +877,6 @@ async function addPlayer(e) {
         alert(`✅ Player "${name}" added successfully!`);
         closeAddPlayerModal();
         
-        // Reload match if currently viewing one
         if (teamA || teamB) {
             const matchdayId = document.getElementById('matchdaySelect').value;
             const teamAId = document.getElementById('teamASelect').value;
