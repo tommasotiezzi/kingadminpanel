@@ -312,9 +312,19 @@ async function initializeApp() {
     await loadMatchdays();
     await loadTeams();
     
+    // Remove any existing listeners first
+    const saveBtn = document.getElementById('saveAllBtn');
+    if (saveBtn) {
+        const newSaveBtn = saveBtn.cloneNode(true);
+        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+        newSaveBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            await saveAllVotes();
+        });
+    }
+    
     document.getElementById('calculateResultsBtn').addEventListener('click', calculateAllResults);
     document.getElementById('loadMatchBtn').addEventListener('click', loadMatch);
-    document.getElementById('saveAllBtn').addEventListener('click', saveAllVotes);
     document.getElementById('configBtn').addEventListener('click', openConfigModal);
     document.getElementById('addPlayerBtn').addEventListener('click', openAddPlayerModal);
     document.getElementById('logoutBtn').addEventListener('click', logout);
@@ -694,31 +704,57 @@ async function saveAllVotes() {
     try {
         showStatus('⏳ Saving...', 'success');
         
+        // Validate that we have loaded data
+        if (!currentMatchday) {
+            throw new Error('No matchday selected. Please load a match first.');
+        }
+        
         const playerCards = document.querySelectorAll('[data-player-id]');
+        
+        if (playerCards.length === 0) {
+            throw new Error('No players found. Please load a match first.');
+        }
+        
+        console.log(`Saving votes for ${playerCards.length} players...`);
         
         for (const card of playerCards) {
             const playerId = card.dataset.playerId;
-            const baseVote = parseFloat(card.querySelector('.base-vote-input').value);
-            const goals = parseInt(card.querySelector('.goals').value) || 0;
-            const goalsDouble = parseInt(card.querySelector('.goals-double').value) || 0;
-            const penaltiesScored = parseInt(card.querySelector('.penalties-scored').value) || 0;
-            const penaltiesMissed = parseInt(card.querySelector('.penalties-missed').value) || 0;
-            const assists = parseInt(card.querySelector('.assists').value) || 0;
-            const yellowCards = parseInt(card.querySelector('.yellow-cards').value) || 0;
-            const redCards = parseInt(card.querySelector('.red-cards').value) || 0;
+            
+            // Get base vote input safely
+            const baseVoteInput = card.querySelector('.base-vote-input');
+            if (!baseVoteInput) {
+                console.warn(`No base vote input found for player ${playerId}`);
+                continue;
+            }
+            
+            const baseVote = parseFloat(baseVoteInput.value);
+            
+            // Skip if base_vote is 0 (player didn't play)
+            if (baseVote === 0 || isNaN(baseVote)) {
+                console.log(`Skipping player ${playerId} - no vote (${baseVote})`);
+                continue;
+            }
+            
+            const goals = parseInt(card.querySelector('.goals')?.value || 0) || 0;
+            const goalsDouble = parseInt(card.querySelector('.goals-double')?.value || 0) || 0;
+            const penaltiesScored = parseInt(card.querySelector('.penalties-scored')?.value || 0) || 0;
+            const penaltiesMissed = parseInt(card.querySelector('.penalties-missed')?.value || 0) || 0;
+            const assists = parseInt(card.querySelector('.assists')?.value || 0) || 0;
+            const yellowCards = parseInt(card.querySelector('.yellow-cards')?.value || 0) || 0;
+            const redCards = parseInt(card.querySelector('.red-cards')?.value || 0) || 0;
             const cleanSheetCheckbox = card.querySelector('.clean-sheet-checkbox');
             const cleanSheet = cleanSheetCheckbox ? cleanSheetCheckbox.checked : false;
-            const shootoutScored = parseInt(card.querySelector('.shootout-scored').value) || 0;
-            const shootoutMissed = parseInt(card.querySelector('.shootout-missed').value) || 0;
-            const ownGoals = parseInt(card.querySelector('.own-goals').value) || 0;
+            const shootoutScored = parseInt(card.querySelector('.shootout-scored')?.value || 0) || 0;
+            const shootoutMissed = parseInt(card.querySelector('.shootout-missed')?.value || 0) || 0;
+            const ownGoals = parseInt(card.querySelector('.own-goals')?.value || 0) || 0;
             
             const goalsConcededInput = card.querySelector('.goals-conceded');
-            const goalsConceded = goalsConcededInput ? parseInt(goalsConcededInput.value) || 0 : 0;
+            const goalsConceded = goalsConcededInput ? parseInt(goalsConcededInput.value || 0) || 0 : 0;
             
             const shootoutConcededInput = card.querySelector('.shootout-conceded');
-            const shootoutConceded = shootoutConcededInput ? parseInt(shootoutConcededInput.value) || 0 : 0;
+            const shootoutConceded = shootoutConcededInput ? parseInt(shootoutConcededInput.value || 0) || 0 : 0;
             
-            const minutesPlayed = parseInt(card.querySelector('.minutes').value) || 0;
+            const minutesPlayed = parseInt(card.querySelector('.minutes')?.value || 0) || 0;
             
             const finalScore = calculatePlayerScore(
                 baseVote, goals, goalsDouble, penaltiesScored, penaltiesMissed, 
