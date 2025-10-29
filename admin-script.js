@@ -4,7 +4,15 @@
 const SUPABASE_URL = 'https://ctikdctvbjsdbtfyzxgj.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0aWtkY3R2YmpzZGJ0Znl6eGdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNDYxNTcsImV4cCI6MjA3NjcyMjE1N30.hlGGeCGsuAxnuimvFoKC0Qj3YirmPmiF3DASxrF1lu0';
 
+// ⚠️ SERVICE ROLE KEY - NEVER COMMIT TO PUBLIC REPO
+// For production: Use environment variable or Vercel env
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Client for authentication (uses anon key)
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Admin client for CRUD operations (bypasses RLS)
+const adminClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // ============================================
 // STATE
@@ -15,7 +23,6 @@ let scoringConfig = {};
 let currentMatchday = null;
 let teamA = null;
 let teamB = null;
-let gameStarted = false;
 
 // ============================================
 // AUTH
@@ -28,6 +35,7 @@ async function checkAuth() {
         await verifyAdmin();
         
         if (isAdmin) {
+            document.getElementById('adminEmailDisplay').textContent = `👤 ${currentUser.email}`;
             showScreen('mainPanel');
             requestAnimationFrame(() => {
                 requestAnimationFrame(async () => {
@@ -35,7 +43,7 @@ async function checkAuth() {
                 });
             });
         } else {
-            alert('Not authorized');
+            alert('❌ Access Denied: Your email is not authorized as admin');
             await sb.auth.signOut();
             showScreen('loginScreen');
         }
@@ -45,17 +53,32 @@ async function checkAuth() {
 }
 
 async function verifyAdmin() {
-    const { data, error } = await sb
-        .from('admin_users')
-        .select('email')
-        .eq('email', currentUser.email)
-        .single();
-    
-    isAdmin = data !== null && !error;
+    try {
+        // Use anon key client to check admin_users table
+        const { data, error } = await sb
+            .from('admin_users')
+            .select('email')
+            .eq('email', currentUser.email)
+            .maybeSingle();
+        
+        if (error) {
+            console.error('Error verifying admin:', error);
+            isAdmin = false;
+            return;
+        }
+        
+        // If email found in admin_users → authorized
+        isAdmin = data !== null;
+        
+        console.log('Admin verification:', isAdmin ? '✅ Authorized' : '❌ Not authorized');
+    } catch (error) {
+        console.error('Error in verifyAdmin:', error);
+        isAdmin = false;
+    }
 }
 
 async function login(email, password) {
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    const { data, error} = await sb.auth.signInWithPassword({ email, password });
     if (error) throw error;
     
     currentUser = data.user;
@@ -63,7 +86,7 @@ async function login(email, password) {
     
     if (!isAdmin) {
         await sb.auth.signOut();
-        throw new Error('Not authorized');
+        throw new Error('Not authorized as admin');
     }
     
     return data;
@@ -73,6 +96,7 @@ async function logout() {
     await sb.auth.signOut();
     currentUser = null;
     isAdmin = false;
+    document.getElementById('adminEmailDisplay').textContent = '';
     showScreen('loginScreen');
 }
 
@@ -91,7 +115,6 @@ async function initializeApp() {
     
     document.getElementById('calculateResultsBtn').addEventListener('click', calculateAllResults);
     document.getElementById('loadMatchBtn').addEventListener('click', loadMatch);
-    document.getElementById('startGameBtn').addEventListener('click', startGame);
     document.getElementById('saveAllBtn').addEventListener('click', saveAllVotes);
     document.getElementById('configBtn').addEventListener('click', openConfigModal);
     document.getElementById('addPlayerBtn').addEventListener('click', openAddPlayerModal);
@@ -109,7 +132,8 @@ async function initializeApp() {
 }
 
 async function loadScoringConfig() {
-    const { data } = await sb.from('scoring_config').select('*');
+    // Use adminClient to bypass RLS
+    const { data } = await adminClient.from('scoring_config').select('*');
     if (data) {
         scoringConfig = {};
         data.forEach(item => {
@@ -119,7 +143,8 @@ async function loadScoringConfig() {
 }
 
 async function loadMatchdays() {
-    const { data } = await sb.from('kl_matchdays').select('*').order('matchday_number');
+    // Use adminClient to bypass RLS
+    const { data } = await adminClient.from('kl_matchdays').select('*').order('matchday_number');
     if (data) {
         const select = document.getElementById('matchdaySelect');
         select.innerHTML = '<option value="">Select Matchday...</option>';
@@ -134,7 +159,8 @@ async function loadMatchdays() {
 }
 
 async function loadTeams() {
-    const { data } = await sb.from('kings_league_teams').select('*').order('name');
+    // Use adminClient to bypass RLS
+    const { data } = await adminClient.from('kings_league_teams').select('*').order('name');
     if (data) {
         const selectA = document.getElementById('teamASelect');
         const selectB = document.getElementById('teamBSelect');
@@ -181,41 +207,22 @@ async function loadMatch() {
     teamA = await loadTeamData(teamAId);
     teamB = await loadTeamData(teamBId);
     
-    const votesExist = await checkExistingVotes(matchdayId);
-    gameStarted = votesExist;
-    
     document.getElementById('matchInfoText').textContent = `Matchday ${matchdayNumber}: ${teamA.name} vs ${teamB.name}`;
     document.getElementById('matchInfo').classList.remove('hidden');
-    document.getElementById('startGameBtn').style.display = votesExist ? 'none' : 'block';
     
-    if (votesExist) {
-        await loadExistingVotes();
-    } else {
-        renderVoteForms();
-    }
+    // Render forms first, then try to load existing votes
+    renderVoteForms();
+    await loadExistingVotes();
     
     document.getElementById('voteSection').classList.remove('hidden');
 }
 
 async function loadTeamData(teamId) {
-    const { data: team } = await sb.from('kings_league_teams').select('*').eq('id', teamId).single();
-    const { data: players } = await sb.from('players').select('*').eq('team_id', teamId).order('role').order('name');
-    const { data: president } = await sb.from('presidents').select('*').eq('team_id', teamId).single();
+    // Use adminClient to bypass RLS
+    const { data: team } = await adminClient.from('kings_league_teams').select('*').eq('id', teamId).single();
+    const { data: players } = await adminClient.from('players').select('*').eq('team_id', teamId).order('role').order('name');
+    const { data: president } = await adminClient.from('presidents').select('*').eq('team_id', teamId).single();
     return { ...team, players, president };
-}
-
-async function checkExistingVotes(matchdayId) {
-    const allPlayers = [...teamA.players, ...teamB.players];
-    const playerIds = allPlayers.map(p => p.id);
-    
-    const { data } = await sb
-        .from('player_votes')
-        .select('id')
-        .eq('kl_matchday_id', matchdayId)
-        .in('player_id', playerIds)
-        .limit(1);
-    
-    return data && data.length > 0;
 }
 
 // ============================================
@@ -393,82 +400,19 @@ function renderPlayersTable(containerId, players) {
 }
 
 // ============================================
-// START GAME (Initialize DB)
-// ============================================
-async function startGame() {
-    if (!confirm('Initialize votes for all players in this match?')) return;
-    
-    try {
-        showStatus('⏳ Initializing...', 'success');
-        
-        const allPlayers = [...teamA.players, ...teamB.players];
-        for (const player of allPlayers) {
-            await sb.from('player_votes').insert({
-                kl_matchday_id: currentMatchday,
-                player_id: player.id,
-                base_vote: 0,
-                goals: 0,
-                goals_double: 0,
-                penalties_scored: 0,
-                penalties_missed: 0,
-                assists: 0,
-                yellow_cards: 0,
-                red_cards: 0,
-                clean_sheet: false,
-                shootout_scored: 0,
-                shootout_missed: 0,
-                own_goals: 0,
-                goals_conceded: 0,
-                shootout_conceded: 0,
-                minutes_played: 0,
-                final_score: 0
-            });
-        }
-        
-        if (teamA.president) {
-            await sb.from('president_votes').insert({
-                kl_matchday_id: currentMatchday,
-                president_id: teamA.president.id,
-                penalty_scored: false,
-                penalty_missed: false,
-                final_score: 0
-            });
-        }
-        
-        if (teamB.president) {
-            await sb.from('president_votes').insert({
-                kl_matchday_id: currentMatchday,
-                president_id: teamB.president.id,
-                penalty_scored: false,
-                penalty_missed: false,
-                final_score: 0
-            });
-        }
-        
-        gameStarted = true;
-        document.getElementById('startGameBtn').style.display = 'none';
-        showStatus('✅ Game initialized!', 'success');
-    } catch (error) {
-        console.error(error);
-        showStatus('❌ Error: ' + error.message, 'error');
-    }
-}
-
-// ============================================
 // LOAD EXISTING VOTES
 // ============================================
 async function loadExistingVotes() {
-    renderVoteForms();
-    
     const allPlayers = [...teamA.players, ...teamB.players];
     
+    // Use adminClient to bypass RLS
     for (const player of allPlayers) {
-        const { data } = await sb
+        const { data } = await adminClient
             .from('player_votes')
             .select('*')
             .eq('kl_matchday_id', currentMatchday)
             .eq('player_id', player.id)
-            .single();
+            .maybeSingle();
         
         if (data) {
             const card = document.querySelector(`[data-player-id="${player.id}"]`);
@@ -476,7 +420,6 @@ async function loadExistingVotes() {
                 const baseVote = data.base_vote || 0;
                 card.querySelector('.base-vote-input').value = baseVote;
                 
-                // Set checkbox based on vote
                 const checkbox = card.querySelector('.gioca-checkbox');
                 if (checkbox) {
                     checkbox.checked = baseVote > 0;
@@ -512,12 +455,12 @@ async function loadExistingVotes() {
     }
     
     if (teamA.president) {
-        const { data } = await sb
+        const { data } = await adminClient
             .from('president_votes')
             .select('*')
             .eq('kl_matchday_id', currentMatchday)
             .eq('president_id', teamA.president.id)
-            .single();
+            .maybeSingle();
         
         if (data) {
             if (data.penalty_scored) {
@@ -531,12 +474,12 @@ async function loadExistingVotes() {
     }
     
     if (teamB.president) {
-        const { data } = await sb
+        const { data } = await adminClient
             .from('president_votes')
             .select('*')
             .eq('kl_matchday_id', currentMatchday)
             .eq('president_id', teamB.president.id)
-            .single();
+            .maybeSingle();
         
         if (data) {
             if (data.penalty_scored) {
@@ -551,14 +494,9 @@ async function loadExistingVotes() {
 }
 
 // ============================================
-// SAVE VOTES
+// SAVE VOTES (WITH UPSERT) - Uses adminClient
 // ============================================
 async function saveAllVotes() {
-    if (!gameStarted) {
-        alert('Please initialize the game first!');
-        return;
-    }
-    
     if (!confirm('Save all votes?')) return;
     
     try {
@@ -566,6 +504,7 @@ async function saveAllVotes() {
         
         const playerCards = document.querySelectorAll('[data-player-id]');
         
+        // Use adminClient to bypass RLS
         for (const card of playerCards) {
             const playerId = card.dataset.playerId;
             const baseVote = parseFloat(card.querySelector('.base-vote-input').value);
@@ -596,7 +535,9 @@ async function saveAllVotes() {
                 shootoutMissed, ownGoals, goalsConceded, shootoutConceded
             );
             
-            const { error } = await sb.from('player_votes').update({
+            const { error } = await adminClient.from('player_votes').upsert({
+                kl_matchday_id: currentMatchday,
+                player_id: playerId,
                 base_vote: baseVote,
                 goals,
                 goals_double: goalsDouble,
@@ -614,7 +555,9 @@ async function saveAllVotes() {
                 minutes_played: minutesPlayed,
                 final_score: finalScore,
                 updated_at: new Date().toISOString()
-            }).eq('kl_matchday_id', currentMatchday).eq('player_id', playerId);
+            }, {
+                onConflict: 'kl_matchday_id,player_id'
+            });
             
             if (error) throw error;
         }
@@ -630,12 +573,16 @@ async function saveAllVotes() {
             if (scored) finalScore = scoringConfig.president_penalty_scored;
             if (missed) finalScore = scoringConfig.president_penalty_missed;
             
-            const { error } = await sb.from('president_votes').update({
+            const { error } = await adminClient.from('president_votes').upsert({
+                kl_matchday_id: currentMatchday,
+                president_id: presidentId,
                 penalty_scored: scored,
                 penalty_missed: missed,
                 final_score: finalScore,
                 updated_at: new Date().toISOString()
-            }).eq('kl_matchday_id', currentMatchday).eq('president_id', presidentId);
+            }, {
+                onConflict: 'kl_matchday_id,president_id'
+            });
             
             if (error) throw error;
         }
@@ -670,7 +617,7 @@ function calculatePlayerScore(
 }
 
 // ============================================
-// CALCULATE RESULTS (RPC)
+// CALCULATE RESULTS (RPC) - Uses adminClient
 // ============================================
 async function calculateAllResults() {
     const matchdayId = document.getElementById('matchdaySelect').value;
@@ -687,7 +634,8 @@ async function calculateAllResults() {
     try {
         showStatus(`⏳ Calculating Matchday ${matchdayNumber}...`, 'success');
         
-        const { data, error } = await sb.rpc('process_matchday_results', {
+        // Use adminClient to bypass RLS
+        const { data, error } = await adminClient.rpc('process_matchday_results', {
             p_kl_matchday_id: matchdayId
         });
         
@@ -708,7 +656,7 @@ async function calculateAllResults() {
 }
 
 // ============================================
-// CONFIG MODAL
+// CONFIG MODAL - Uses adminClient
 // ============================================
 function openConfigModal() {
     const modal = document.getElementById('configModal');
@@ -737,28 +685,31 @@ function closeConfigModal() {
 async function saveConfig() {
     try {
         const inputs = document.querySelectorAll('#configForm input');
+        
+        // Use adminClient to bypass RLS
         for (const input of inputs) {
             const key = input.dataset.configKey;
             const value = parseFloat(input.value);
-            const { error } = await sb.from('scoring_config').update({ value }).eq('key', key);
+            const { error } = await adminClient.from('scoring_config').update({ value }).eq('key', key);
             if (error) throw error;
         }
         await loadScoringConfig();
         closeConfigModal();
-        alert('Config saved!');
+        alert('✅ Config saved!');
     } catch (error) {
         console.error(error);
-        alert('Error: ' + error.message);
+        alert('❌ Error: ' + error.message);
     }
 }
 
 // ============================================
-// ADD PLAYER MODAL
+// ADD PLAYER MODAL - Uses adminClient
 // ============================================
 async function openAddPlayerModal() {
     const modal = document.getElementById('addPlayerModal');
     
-    const { data: teams } = await sb.from('kings_league_teams').select('*').order('name');
+    // Use adminClient to bypass RLS
+    const { data: teams } = await adminClient.from('kings_league_teams').select('*').order('name');
     const teamSelect = document.getElementById('playerTeam');
     teamSelect.innerHTML = '<option value="">Select Team...</option>';
     if (teams) {
@@ -803,13 +754,15 @@ async function addPlayer(e) {
             avatar_url: avatar || null
         };
         
-        const { data, error } = await sb.from('players').insert(playerData).select();
+        // Use adminClient to bypass RLS
+        const { data, error } = await adminClient.from('players').insert(playerData).select();
         
         if (error) throw error;
         
         alert(`✅ Player "${name}" added successfully!`);
         closeAddPlayerModal();
         
+        // Reload match if currently viewing one
         if (teamA || teamB) {
             const matchdayId = document.getElementById('matchdaySelect').value;
             const teamAId = document.getElementById('teamASelect').value;
@@ -827,12 +780,14 @@ async function addPlayer(e) {
 
 function showStatus(message, type) {
     const status = document.getElementById('saveStatus');
-    status.textContent = message;
-    status.className = `save-status ${type}`;
-    setTimeout(() => {
-        status.textContent = '';
-        status.className = 'save-status';
-    }, 5000);
+    if (status) {
+        status.textContent = message;
+        status.className = `save-status ${type}`;
+        setTimeout(() => {
+            status.textContent = '';
+            status.className = 'save-status';
+        }, 5000);
+    }
 }
 
 // ============================================
@@ -849,6 +804,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         try {
             await login(email, password);
+            document.getElementById('adminEmailDisplay').textContent = `👤 ${email}`;
             showScreen('mainPanel');
             requestAnimationFrame(() => {
                 requestAnimationFrame(async () => {
