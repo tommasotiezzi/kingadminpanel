@@ -13,131 +13,203 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // Instead of using service role key in browser, we proxy through API route
 const adminClient = {
   from: (table) => ({
-    select: (columns = '*') => ({
-      eq: function(key, value) {
-        this.filters = { ...this.filters, [key]: value };
-        return this;
-      },
-      order: function(column, options = {}) {
-        this.orderBy = { column, ascending: options.ascending !== false };
-        return this;
-      },
-      single: function() {
-        this.isSingle = true;
-        return this.execute();
-      },
-      maybeSingle: function() {
-        this.isSingle = true;
-        return this.execute();
-      },
-      then: function(resolve, reject) {
-        return this.execute().then(resolve, reject);
-      },
-      filters: {},
-      orderBy: null,
-      isSingle: false,
-      execute: async function() {
-        const response = await fetch('/api/admin-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'select',
-            params: {
-              table,
-              columns,
-              filters: this.filters,
-              single: this.isSingle,
-              order: this.orderBy
-            }
-          })
-        });
-        return await response.json();
-      }
-    }),
-    insert: (data) => ({
-      select: function() {
-        this.shouldSelect = true;
-        return this;
-      },
-      then: function(resolve, reject) {
-        return this.execute().then(resolve, reject);
-      },
-      shouldSelect: false,
-      execute: async function() {
-        const response = await fetch('/api/admin-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'insert',
-            params: {
-              table,
-              data,
-              select: this.shouldSelect
-            }
-          })
-        });
-        return await response.json();
-      }
-    }),
-    update: (data) => ({
-      eq: function(key, value) {
-        this.filters = { ...this.filters, [key]: value };
-        return this;
-      },
-      then: function(resolve, reject) {
-        return this.execute().then(resolve, reject);
-      },
-      filters: {},
-      execute: async function() {
-        const response = await fetch('/api/admin-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'update',
-            params: {
-              table,
-              data,
-              filters: this.filters
-            }
-          })
-        });
-        return await response.json();
-      }
-    }),
-    upsert: (data, options = {}) => ({
-      then: function(resolve, reject) {
-        return this.execute().then(resolve, reject);
-      },
-      execute: async function() {
-        const response = await fetch('/api/admin-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'upsert',
-            params: {
-              table,
-              data,
-              onConflict: options.onConflict
-            }
-          })
-        });
-        return await response.json();
-      }
-    })
-  }),
-  rpc: async (functionName, args = {}) => {
-    const response = await fetch('/api/admin-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'rpc',
-        params: {
-          functionName,
-          args
+    select: (columns = '*') => {
+      const builder = {
+        filters: {},
+        orderBy: null,
+        isSingle: false,
+        
+        eq: function(key, value) {
+          this.filters[key] = value;
+          return this;
+        },
+        
+        order: function(column, options = {}) {
+          this.orderBy = { column, ascending: options.ascending !== false };
+          return this;
+        },
+        
+        single: async function() {
+          this.isSingle = true;
+          const response = await fetch('/api/admin-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'select',
+              params: {
+                table,
+                columns,
+                filters: this.filters,
+                single: this.isSingle,
+                order: this.orderBy
+              }
+            })
+          });
+          const result = await response.json();
+          return { data: result.data, error: result.error };
+        },
+        
+        maybeSingle: async function() {
+          this.isSingle = true;
+          const response = await fetch('/api/admin-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'select',
+              params: {
+                table,
+                columns,
+                filters: this.filters,
+                single: this.isSingle,
+                order: this.orderBy
+              }
+            })
+          });
+          const result = await response.json();
+          return { data: result.data, error: result.error };
+        },
+        
+        then: async function(resolve, reject) {
+          try {
+            const response = await fetch('/api/admin-proxy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'select',
+                params: {
+                  table,
+                  columns,
+                  filters: this.filters,
+                  single: this.isSingle,
+                  order: this.orderBy
+                }
+              })
+            });
+            const result = await response.json();
+            resolve({ data: result.data, error: result.error });
+          } catch (error) {
+            reject(error);
+          }
         }
-      })
-    });
-    return await response.json();
+      };
+      
+      return builder;
+    },
+    
+    insert: (data) => {
+      const builder = {
+        shouldSelect: false,
+        
+        select: function() {
+          this.shouldSelect = true;
+          return this;
+        },
+        
+        then: async function(resolve, reject) {
+          try {
+            const response = await fetch('/api/admin-proxy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'insert',
+                params: {
+                  table,
+                  data,
+                  select: this.shouldSelect
+                }
+              })
+            });
+            const result = await response.json();
+            resolve({ data: result.data, error: result.error });
+          } catch (error) {
+            reject(error);
+          }
+        }
+      };
+      
+      return builder;
+    },
+    
+    update: (data) => {
+      const builder = {
+        filters: {},
+        
+        eq: function(key, value) {
+          this.filters[key] = value;
+          return this;
+        },
+        
+        then: async function(resolve, reject) {
+          try {
+            const response = await fetch('/api/admin-proxy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'update',
+                params: {
+                  table,
+                  data,
+                  filters: this.filters
+                }
+              })
+            });
+            const result = await response.json();
+            resolve({ data: result.data, error: result.error });
+          } catch (error) {
+            reject(error);
+          }
+        }
+      };
+      
+      return builder;
+    },
+    
+    upsert: (data, options = {}) => {
+      const builder = {
+        then: async function(resolve, reject) {
+          try {
+            const response = await fetch('/api/admin-proxy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'upsert',
+                params: {
+                  table,
+                  data,
+                  onConflict: options.onConflict
+                }
+              })
+            });
+            const result = await response.json();
+            resolve({ data: result.data, error: result.error });
+          } catch (error) {
+            reject(error);
+          }
+        }
+      };
+      
+      return builder;
+    }
+  }),
+  
+  rpc: async (functionName, args = {}) => {
+    try {
+      const response = await fetch('/api/admin-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'rpc',
+          params: {
+            functionName,
+            args
+          }
+        })
+      });
+      const result = await response.json();
+      return { data: result.data, error: result.error };
+    } catch (error) {
+      return { data: null, error };
+    }
   }
 };
 
