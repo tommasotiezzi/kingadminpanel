@@ -727,13 +727,10 @@ async function saveAllVotes() {
                 continue;
             }
             
-            const baseVote = parseFloat(baseVoteInput.value);
+            const baseVote = parseFloat(baseVoteInput.value) || 0;  // Default to 0 if empty/NaN
             
-            // Skip if base_vote is 0 (player didn't play)
-            if (baseVote === 0 || isNaN(baseVote)) {
-                console.log(`Skipping player ${playerId} - no vote (${baseVote})`);
-                continue;
-            }
+            // CHANGED: Always save the vote, even if it's 0
+            // This ensures all players in the match are saved with their votes
             
             const goals = parseInt(card.querySelector('.goals')?.value || 0) || 0;
             const goalsDouble = parseInt(card.querySelector('.goals-double')?.value || 0) || 0;
@@ -787,6 +784,8 @@ async function saveAllVotes() {
             });
             
             if (error) throw error;
+            
+            console.log(`Saved player ${playerId} with base_vote: ${baseVote}`);
         }
         
         const presidentCards = document.querySelectorAll('[data-president-id]');
